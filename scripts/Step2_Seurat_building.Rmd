@@ -1,0 +1,228 @@
+---
+title: "step1_LIFR"
+author: "SergioPoli"
+date: "2025-05-12"
+output: html_document
+setwd("/n/data1/bwh/medicine/rosas/Projects/LIFRSkin")
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  root.dir = "/n/data1/bwh/medicine/rosas/Projects/LIFRSkin"
+)
+```
+
+
+# Attach metadata and run basic Seurat pipeline
+
+# Load required libraries
+
+```{r}
+library(Seurat)
+library(data.table)
+library(dplyr)
+```
+
+# Load combined Seurat object
+# Load metadata
+```{r}
+combined <- readRDS("results/combined_seurat.rds")
+meta_file <- "data/GSE195452_Cell_metadata_v26_anno.txt"
+metadata <- fread(meta_file)
+```
+
+
+# Ensure correct rownames and matching
+```{r}
+# Load object and sample metadata
+#combined <- readRDS("results/combined_seurat.rds")
+sample_meta <- fread(file.path(knitr::opts_chunk$get("root.dir"), "data/SraRunTable.csv"))
+
+sample_meta$GSM <- sample_meta$`Sample Name`
+sample_meta_unique <- sample_meta[!duplicated(sample_meta$GSM), ]
+
+# Keep only relevant columns (adjust names if needed)
+sample_meta_useful <- sample_meta_unique[, .(
+  GSM,
+  patient_id = `patient_id`,       # Change if column differs
+  marker = `selection_marker`,     # Change if column differs
+  tissue = `tissue`           # Change if column differs
+)]
+
+# Extract GSM ID per cell
+cell_metadata <- data.frame(cell = colnames(combined))
+cell_metadata$GSM <- sub("_.*", "", cell_metadata$cell)
+
+# Merge sample metadata to each cell (1:1)
+annotated_meta <- merge(cell_metadata, sample_meta_useful, by = "GSM", all.x = TRUE)
+
+# Ensure no duplicates
+stopifnot(!any(duplicated(annotated_meta$cell)))
+
+# Set rownames and add to Seurat
+rownames(annotated_meta) <- annotated_meta$cell
+annotated_meta <- annotated_meta[colnames(combined), ]  # Align
+combined <- AddMetaData(combined, metadata = annotated_meta)
+
+
+# Save the updated Seurat object
+saveRDS(combined, "results/combined_annotated_seurat.rds")
+combined<- readRDS("results/combined_annotated_seurat.rds")
+
+```
+
+
+# Basic QC
+```{r}
+combined[["percent.mt"]] <- PercentageFeatureSet(combined, pattern = "^MT-")
+combined[["percent.ribo"]] <- PercentageFeatureSet(combined, pattern = "^RPL|^RPS")
+## Filter low-quality cells
+combined <- subset(combined, subset = nFeature_RNA > 200 & nCount_RNA > 500 & percent.mt < 20)
+```
+
+
+# Normalize and find variable features
+```{r}
+library(future)
+options(future.globals.maxSize = 10 * 1024^3)  # 10 GB
+
+combined <- NormalizeData(combined)
+
+combined <- FindVariableFeatures(combined)
+
+```
+
+# Scale and PCA
+
+```{r}
+combined <- ScaleData(combined)
+combined <- RunPCA(combined)
+## Clustering
+combined <- FindNeighbors(combined, dims = 1:20)
+combined <- FindClusters(combined, resolution = 0.5)  # adjust resolution as needed
+
+```
+
+# UMAP
+
+```{r}
+combined <- RunUMAP(combined, dims = 1:20)
+# Save object
+saveRDS(combined, file = "results/combined_qc_seurat.rds")
+combined <- readRDS("results/combined_qc_seurat.rds")
+```
+
+```{r}
+identity<- fread(file.path(knitr::opts_chunk$get("root.dir"), "data/GSE195452_Cell_metadata_v26_anno.txt"))
+```
+
+```{r}
+markers<- FindAllMarkers(combined, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top10 <- markers %>% group_by(cluster) %>% top_n(10, avg_log2FC)
+```
+
+```{r}
+DimPlot(combined)
+
+```
+
+#Retaining the disease identity
+
+```{r}
+sample_meta$condition <- case_when(
+  grepl("^Ctrl|^Control|^Ctrl_pool", sample_meta$patient_id) ~ "Control",
+  grepl("dSSc", sample_meta$patient_id, ignore.case = TRUE) ~ "Diffuse SSc",
+  grepl("GVHD", sample_meta$patient_id, ignore.case = TRUE) ~ "GVHD",
+  grepl("Morphea", sample_meta$patient_id, ignore.case = TRUE) ~ "Morphea",
+  grepl("^pt", sample_meta$patient_id, ignore.case = TRUE) ~ "Scleroderma",
+  grepl("Hip", sample_meta$patient_id, ignore.case = TRUE) ~ "Hip",
+  TRUE ~ "Other")
+
+
+# Match GSM from cell metadata to sample_meta
+combined@meta.data$GSM <- sub("_.*", "", colnames(combined))
+
+# Match and assign condition
+combined@meta.data$condition <- sample_meta$condition[match(combined@meta.data$GSM, sample_meta$GEO_Accession)]
+
+# Optional: drop GSM if you no longer need it
+# combined@meta.data$GSM <- NULL
+
+
+```
+
+#Clean conditions
+
+```{r}
+# Make sure the relevant metadata columns are present
+table(combined@meta.data$condition)
+
+# Subset combined object to only keep "Control" and "Scleroderma"
+combined_scl_ctrl <- subset(
+  combined,
+  subset = condition %in% c("Control", "Scleroderma")
+)
+
+# Drop unused factor levels (if any)
+combined_scl_ctrl@meta.data$condition <- droplevels(combined_scl_ctrl@meta.data$condition)
+
+# Optionally, save this cleaned object
+saveRDS(combined_scl_ctrl, "results/combined_scl_ctrl_only.rds")
+
+
+# Load libraries (if not already loaded)
+library(Seurat)
+library(future)
+
+# Set future options to avoid memory errors during NormalizeData etc.
+options(future.globals.maxSize = 10 * 1024^3)
+
+# OPTIONAL: Set as default object if you're working interactively
+DefaultAssay(combined_scl_ctrl) <- "RNA"
+
+# Normalize, find variable features, scale
+combined_scl_ctrl <- NormalizeData(combined_scl_ctrl)
+combined_scl_ctrl <- FindVariableFeatures(combined_scl_ctrl)
+combined_scl_ctrl <- ScaleData(combined_scl_ctrl)
+
+# PCA
+combined_scl_ctrl <- RunPCA(combined_scl_ctrl)
+
+# Neighbors
+combined_scl_ctrl <- FindNeighbors(combined_scl_ctrl, dims = 1:20)
+
+# Clustering (resolution can be tuned, e.g., 0.2–1.2)
+combined_scl_ctrl <- FindClusters(combined_scl_ctrl, resolution = 0.5)
+
+# UMAP
+combined_scl_ctrl <- RunUMAP(combined_scl_ctrl, dims = 1:20)
+
+# Save the updated object
+saveRDS(combined_scl_ctrl, "results/combined_scl_ctrl_clustered.rds")
+
+# Set the active identity to the clusters (should be already by default)
+Idents(combined_scl_ctrl) <- "seurat_clusters"
+
+# Run differential expression to find markers for each cluster
+markers <- FindAllMarkers(
+  combined_scl_ctrl,
+  only.pos = TRUE,            # only return markers that are upregulated in each cluster
+  min.pct = 0.25,             # only test genes expressed in at least 25% of cells in either group
+  logfc.threshold = 0.25      # only test genes with at least 0.25 log-fold change
+)
+
+# Save the results
+fwrite(markers, file = "results/cluster_markers_scl_ctrl.tsv", sep = "\t")
+
+# Optional: inspect top markers
+markers %>% group_by(cluster) %>% top_n(5, avg_log2FC)
+
+```
+
+
+```{r}
+
+```
+

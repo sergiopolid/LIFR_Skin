@@ -1,0 +1,107 @@
+---
+title: "LIFR_SSc"
+author: "SergioPoli"
+date: "2025-05-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("/n/data1/bwh/medicine/rosas/Projects/LIFRSkin")
+dir.create("results", showWarnings = FALSE)
+dir.create("figures", showWarnings = FALSE)
+dir.create("scripts", showWarnings = FALSE)
+dir.create("results/staged_merge", showWarnings = FALSE)
+```
+
+# Load Libraries
+```{r}
+library(Seurat)
+library(data.table)
+library(dplyr)
+```
+
+# Read scRNA-seq Files (Serial)
+```{r}
+files <- list.files("/n/data1/bwh/medicine/rosas/Projects/LIFRSkin/GSE195452_RAW/", pattern = "\\.txt\\.gz$", full.names = TRUE)
+
+seurat_list <- lapply(seq_along(files), function(i) {
+  f <- files[i]
+  sample_id <- gsub("\\.txt\\.gz$", "", basename(f))
+  message(sprintf("Reading %d/%d: %s", i, length(files), sample_id))
+
+  tryCatch({
+    dat <- fread(f, header = FALSE)
+    genes <- dat[[1]]
+    counts <- dat[, -1, drop = FALSE]
+    rownames(counts) <- genes
+    colnames(counts) <- paste0(sample_id, "_cell", seq_len(ncol(counts)))
+    rownames(counts) <- gsub("_", "-", rownames(counts))
+    CreateSeuratObject(counts = counts, project = sample_id)
+  }, error = function(e) {
+    message(sprintf("Failed on %s: %s", sample_id, e$message))
+    return(NULL)
+  })
+})
+
+seurat_list <- Filter(Negate(is.null), seurat_list)
+```
+
+# Clean Meta Data
+```{r}
+seurat_list <- lapply(seurat_list, function(obj) {
+  meta_clean <- obj@meta.data
+  for (col in colnames(meta_clean)) {
+    if (!is.atomic(meta_clean[[col]]) || is.list(meta_clean[[col]]) || isS4(meta_clean[[col]])) {
+      message("Dropping column: ", col)
+      meta_clean[[col]] <- NULL
+    }
+  }
+  obj@meta.data <- meta_clean
+  return(obj)
+})
+```
+
+# Tree Merge Function
+```{r}
+tree_merge_seurat <- function(seurat_list) {
+  n <- length(seurat_list)
+  if (n == 0) stop("Empty list.")
+  if (n == 1) return(seurat_list[[1]])
+  if (n == 2) return(merge(seurat_list[[1]], y = seurat_list[[2]]))
+  mid <- ceiling(n / 2)
+  left <- tree_merge_seurat(seurat_list[1:mid])
+  right <- tree_merge_seurat(seurat_list[(mid + 1):n])
+  return(merge(left, y = right))
+}
+```
+
+# Stage-wise Merging and Saving (Serial)
+```{r}
+grouped <- split(seurat_list, ceiling(seq_along(seurat_list) / (length(seurat_list) / 5)))
+
+merged_paths <- lapply(seq_along(grouped), function(i) {
+  message(sprintf("Merging group %d of %d", i, length(grouped)))
+  merged_group <- tree_merge_seurat(grouped[[i]])
+  DefaultAssay(merged_group) <- "RNA"
+  merged_group[["RNA"]] <- JoinLayers(merged_group[["RNA"]])
+  out_path <- sprintf("/n/data1/bwh/medicine/rosas/Projects/LIFRSkin/results/staged_merge/group_%02d.rds", i)
+  saveRDS(merged_group, file = out_path)
+  return(out_path)
+})
+```
+
+# Final Merge
+```{r}
+final_groups <- lapply(merged_paths, function(p) {
+  p <- normalizePath(p)  # ensures full path even if you changed wd
+  readRDS(p)
+})
+combined <- tree_merge_seurat(final_groups)
+DefaultAssay(combined) <- "RNA"
+combined[["RNA"]] <- JoinLayers(combined[["RNA"]])
+
+saveRDS(combined, "/n/data1/bwh/medicine/rosas/Projects/LIFRSkin/results/combined_seurat.rds")
+```
+
+Rest of the steps will continue on the next script. 

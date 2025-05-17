@@ -1,0 +1,96 @@
+---
+title: "LIFR"
+author: "SergioPoli"
+date: "2025-05-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Cairo)
+library(patchwork)
+
+# Define the individual plots
+p1 <- DimPlot(combined_scl_ctrl, label = TRUE, repel = TRUE) + NoLegend()
+p2 <- DimPlot(combined_scl_ctrl, group.by = "condition", label = TRUE, repel = TRUE)
+p3 <- DimPlot(combined_scl_ctrl, group.by = "tissue", label = TRUE, repel = TRUE) + NoLegend()
+
+# Create the combined plot
+patch <- p1 | (p2 / p3)
+
+# Save as PDF using Cairo
+CairoPDF("figures/umap_by_groupings.pdf", width = 12, height = 6)
+print(patch)
+dev.off()
+
+```
+
+
+
+```{r}
+feat_plot <- FeaturePlot(
+  combined_scl_ctrl,
+  features = c("LIFR", "LIF"),
+  split.by = "condition",
+  order = TRUE
+)
+
+# Save with Cairo
+CairoPDF("figures/featureplot_LIFR_LIF_split_by_condition.pdf", width = 12, height = 6)
+print(feat_plot)
+dev.off()
+```
+
+
+```{r}
+library(ggplot2)
+
+celltypes <- c("Myofibroblasts", "Endothelial Cells", "Adventitial Fibroblasts", "Pericytes / SMCs", "Mast Cells")
+
+for (ctype in celltypes) {
+  p <- VlnPlot(
+    combined_scl_ctrl,
+    features = c("LIFR", "LIF"),
+    group.by = "condition",
+    idents = ctype,
+    pt.size = 0.1
+  ) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+  ggsave(
+    filename = paste0("figures/VlnPlot_LIFR_LIF_", gsub(" / ", "_", gsub(" ", "_", ctype)), ".pdf"),
+    plot = p,
+    width = 6,
+    height = 4,
+    device = cairo_pdf
+  )
+}
+
+```
+
+
+```{r}
+vln_plot_allcells_LIFR <- VlnPlot(
+  combined_scl_ctrl,
+  features = c("LIFR"),
+  split.by = "celltype"
+) + NoLegend()
+
+vln_plot_allcells_LIF <- VlnPlot(
+  combined_scl_ctrl,
+  features = c("LIF"),
+  split.by = "celltype"
+) + NoLegend()
+
+# Save with Cairo
+CairoPDF("figures/vlnplotLIFR_allcells.pdf", width = 12, height = 6)
+print(vln_plot_allcells_LIFR)
+dev.off()
+
+CairoPDF("figures/vlnplotLIF_allcells.pdf", width = 12, height = 6)
+print(vln_plot_allcells_LIF)
+dev.off()
+```

@@ -18,11 +18,8 @@ GSE195452_RAW/
 # results/
 
 # === Figures and temp outputs ===
-figures/
-scripts/
-*.pdf
-*.png
-*.jpg
+
+
 
 # === System files ===
 .DS_Store
