@@ -94,3 +94,9 @@ CairoPDF("figures/vlnplotLIF_allcells.pdf", width = 12, height = 6)
 print(vln_plot_allcells_LIF)
 dev.off()
 ```
+
+
+```{r}
+save.image(file = "results/LIFR_Skin_environment.RData")
+```
+

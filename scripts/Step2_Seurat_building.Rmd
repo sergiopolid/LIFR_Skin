@@ -217,12 +217,49 @@ markers <- FindAllMarkers(
 fwrite(markers, file = "results/cluster_markers_scl_ctrl.tsv", sep = "\t")
 
 # Optional: inspect top markers
-markers %>% group_by(cluster) %>% top_n(5, avg_log2FC)
+top1<- markers %>% group_by(cluster) %>% top_n(15, avg_log2FC)
 
 ```
 
-
+#Cluster identities
 ```{r}
+# Define cluster-to-celltype mapping
+cluster_celltype <- c(
+  "0" = "Naive CD4+ T cells",
+  "1" = "Resting Dermal Fibroblasts",
+  "2" = "Adventitial Fibroblasts",
+  "3" = "Myofibroblasts",
+  "4" = "Cytotoxic NK/CD8+ T cells",
+  "5" = "Activated CD4+ T cells",
+  "6" = "Pericytes / SMCs",
+  "7" = "Endothelial Cells",
+  "8" = "Basal Keratinocytes",
+  "9" = "M2 Macrophages",
+  "10" = "Conventional Dendritic Cells (cDC2)",
+  "11" = "M1 Monocytes / Macrophages",
+  "12" = "Naive B cells",
+  "13" = "Mast Cells",
+  "14" = "Smooth Muscle Cells",
+  "15" = "Peripheral Glial Cells",
+  "16" = "Cycling Cells",
+  "17" = "Plasma Cells",
+  "18" = "Naive CD8+ T cells",
+  "19" = "Low-quality / Debris"
+)
+
+# Step 1: Create a named vector with cell names as names and cell types as values
+celltype_vector <- setNames(cluster_celltype[Idents(combined_scl_ctrl)], colnames(combined_scl_ctrl))
+
+# Step 2: Add to metadata
+combined_scl_ctrl <- AddMetaData(combined_scl_ctrl, metadata = celltype_vector, col.name = "celltype")
+
+
+# Optional: Set celltype as active identity
+Idents(combined_scl_ctrl) <- combined_scl_ctrl$celltype
+
+# Save updated object
+saveRDS(combined_scl_ctrl, file = "results/combined_annotated_celltypes.rds")
+
 
 ```
 
