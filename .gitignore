@@ -1,0 +1,29 @@
+# === RStudio files ===
+.Rproj.user/
+*.Rproj
+.Rhistory
+.RData
+.Ruserdata
+
+# === Seurat-related intermediate/large files ===
+*.rds
+*.rda
+*.RData
+
+# === Raw data folder ===
+GSE195452_RAW/
+
+# === Results: optionally ignore large outputs ===
+# Uncomment if you want to exclude all saved results
+# results/
+
+# === Figures and temp outputs ===
+figures/
+scripts/
+*.pdf
+*.png
+*.jpg
+
+# === System files ===
+.DS_Store
+Thumbs.db
